@@ -101,6 +101,21 @@ def test_tool_surface_matches_mcp_tools():
     }
 
 
+def test_config_schema_matches_hermes_expected_list_shape():
+    plugin = load_plugin()
+    provider = plugin.GlyphHoldMemoryProvider()
+
+    schema = provider.get_config_schema()
+
+    assert isinstance(schema, list)
+    fields = {field["key"]: field for field in schema}
+    assert fields["GLYPHHOLD_URL"]["env_var"] == "GLYPHHOLD_URL"
+    assert fields["GLYPHHOLD_URL"]["default"] == "http://127.0.0.1:5995"
+    assert fields["GLYPHHOLD_API_KEY"]["secret"] is True
+    assert fields["GLYPHHOLD_VERIFY_SSL"]["choices"] == ["true", "false"]
+    assert all("fields" not in field for field in schema)
+
+
 def test_delete_memory_requires_matching_title():
     plugin = load_plugin()
     provider = plugin.GlyphHoldMemoryProvider()
