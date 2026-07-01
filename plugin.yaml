@@ -1,0 +1,8 @@
+name: glyphhold
+version: 0.1.0
+description: Glyph Hold memory provider for Hermes Agent.
+author: Dosk3n
+entry_point: __init__.py
+hooks:
+  - memory_provider
+pip_dependencies: []
