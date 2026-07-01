@@ -110,15 +110,3 @@ The plugin exposes the Glyph Hold memory and secret surface to Hermes:
 - `reveal_secret_env`
 
 Deletion tools require the current memory title or secret name as confirmation.
-
-## Development
-
-Development tooling is optional and is not needed to use the plugin.
-
-```bash
-python -m venv .venv
-. .venv/bin/activate
-pip install pytest ruff
-pytest
-ruff check .
-```
