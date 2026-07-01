@@ -437,41 +437,37 @@ class GlyphHoldMemoryProvider(MemoryProvider):
         _load_env_file(Path(__file__).with_name(".env"))
         return bool(os.getenv("GLYPHHOLD_URL") and os.getenv("GLYPHHOLD_API_KEY"))
 
-    def get_config_schema(self) -> dict[str, Any]:
-        return {
-            "fields": [
-                {
-                    "name": "GLYPHHOLD_URL",
-                    "label": "Glyph Hold URL",
-                    "type": "string",
-                    "required": True,
-                    "env_var": "GLYPHHOLD_URL",
-                },
-                {
-                    "name": "GLYPHHOLD_API_KEY",
-                    "label": "Glyph Hold API key",
-                    "type": "string",
-                    "required": True,
-                    "secret": True,
-                    "env_var": "GLYPHHOLD_API_KEY",
-                },
-                {
-                    "name": "GLYPHHOLD_VERIFY_SSL",
-                    "label": "Verify SSL certificates",
-                    "type": "boolean",
-                    "required": False,
-                    "env_var": "GLYPHHOLD_VERIFY_SSL",
-                    "default": True,
-                },
-                {
-                    "name": "GLYPHHOLD_CA_BUNDLE",
-                    "label": "Custom CA bundle path",
-                    "type": "string",
-                    "required": False,
-                    "env_var": "GLYPHHOLD_CA_BUNDLE",
-                },
-            ]
-        }
+    def get_config_schema(self) -> list[dict[str, Any]]:
+        return [
+            {
+                "key": "GLYPHHOLD_URL",
+                "description": "Glyph Hold URL",
+                "required": True,
+                "env_var": "GLYPHHOLD_URL",
+                "default": "http://127.0.0.1:5995",
+            },
+            {
+                "key": "GLYPHHOLD_API_KEY",
+                "description": "Glyph Hold API key",
+                "required": True,
+                "secret": True,
+                "env_var": "GLYPHHOLD_API_KEY",
+            },
+            {
+                "key": "GLYPHHOLD_VERIFY_SSL",
+                "description": "Verify SSL certificates",
+                "required": False,
+                "env_var": "GLYPHHOLD_VERIFY_SSL",
+                "default": "true",
+                "choices": ["true", "false"],
+            },
+            {
+                "key": "GLYPHHOLD_CA_BUNDLE",
+                "description": "Custom CA bundle path",
+                "required": False,
+                "env_var": "GLYPHHOLD_CA_BUNDLE",
+            },
+        ]
 
     def initialize(self, session_id: str, **kwargs: Any) -> None:
         _load_env_file(Path(__file__).with_name(".env"))
