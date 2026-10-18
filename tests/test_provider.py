@@ -265,3 +265,22 @@ def test_official_hermes_base_contract(monkeypatch):
     assert p.backup_paths() == []
     assert p.identity_signature() == {}
     p.shutdown()
+
+
+def test_reveal_preserves_legacy_caller_labels_in_body_not_url():
+    p = load_plugin().GlyphHoldMemoryProvider()
+    p.client = FakeClient()
+    args = {
+        "id_or_name": "SSH_PASSWORD",
+        "space_id": "space_import_review",
+        "requesting_agent": "Melchior",
+        "tool": "ssh",
+    }
+    p.handle_tool_call("reveal_secret", args)
+    assert p.client.calls[-1] == (
+        "POST",
+        "/api/v2/secrets/SSH_PASSWORD/reveal",
+        {"requesting_agent": "Melchior", "tool": "ssh"},
+        {"space_id": "space_import_review"},
+    )
+    assert args["id_or_name"] == "SSH_PASSWORD"

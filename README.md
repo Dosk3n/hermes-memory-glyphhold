@@ -1,6 +1,6 @@
 # Glyph Hold 2 memory provider for Hermes
 
-Version 2.0.0 targets Glyph Hold 2's `/api/v2` contract. Version 0.1.0 targets
+Version 2.0.1 targets Glyph Hold 2's `/api/v2` contract. Version 0.1.0 targets
 Glyph Hold 1 and must be upgraded alongside the service. No API credits or model
 calls are required by this provider; optional Advanced Memory runs on the server.
 
@@ -54,7 +54,7 @@ still requires validation against the installed Hermes version and your server.
 Official host contract:
 https://hermes-agent.nousresearch.com/docs/developer-guide/memory-provider-plugin/
 
-## Hermes 2.0.0 adapter validation (18 October 2026)
+## Hermes 2.0.1 adapter validation (18 October 2026)
 
 Reviewed the current [official provider guide](https://hermes-agent.nousresearch.com/docs/developer-guide/memory-provider-plugin/),
 [provider interface](https://github.com/NousResearch/hermes-agent/blob/main/agent/memory_provider.py),
@@ -65,7 +65,7 @@ non-secret fields; this provider uses that supported env-only configuration rout
 Use a directory installation at `$HERMES_HOME/plugins/glyphhold`; do not inject
 packages into a Hermes-managed Python environment with pip.
 
-Version 2.0.0 implements the current `turn_author` hook argument, session-switch
+Version 2.0.1 implements the current `turn_author` hook argument, session-switch
 handling and the native recall indicator. The indicator resets on empty/failed
 recall and session changes. New/branched sessions use the connection default;
 resuming an existing session restores that session's server-side context.
@@ -97,6 +97,11 @@ For migration from 0.1.0, keep the old adapter with GH1 until the coordinated
 switch. Back up the plugin (including its private `.env`) and GH1 data first.
 Use `hermes memory setup` under the intended profile to configure the GH2 URL and
 a GH2 key with explicit space grants. A legacy plugin-local `.env` is not loaded
-by 2.0.0; migrate its required settings securely, and do not copy unrelated
+by 2.0.1; migrate its required settings securely, and do not copy unrelated
 credentials. Restart Hermes and verify recall and an explicit test write before
 accepting the migration. Production deployment and this live check are pending.
+
+Version 2.0.1 preserves legacy secret caller-label constraints through optional
+`requesting_agent` and `tool` fields on `reveal_secret`. These labels supplement
+authenticated space grants; they do not authenticate a caller. Unmatched legacy
+restrictions are denied by GH2 rather than silently discarded during migration.

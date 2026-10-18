@@ -45,7 +45,7 @@ except ImportError:
         return Path(home) if home else None
 
 
-__version__ = "2.0.0"
+__version__ = "2.0.1"
 log = logging.getLogger(__name__)
 
 
@@ -471,7 +471,7 @@ class GlyphHoldMemoryProvider(MemoryProvider):
             schema(
                 "reveal_secret",
                 "Reveal a secret only for an explicit user request or authorised task.",
-                {"id_or_name": text, "space_id": text},
+                {"id_or_name": text, "space_id": text, "requesting_agent": text, "tool": text},
                 ["id_or_name"],
             ),
         ]
@@ -559,10 +559,11 @@ class GlyphHoldMemoryProvider(MemoryProvider):
         if name in {"get_secret_metadata", "reveal_secret"}:
             ident = args.pop("id_or_name")
             path = "/api/v2/secrets/" + encoded(ident)
+            payload = {k: args.pop(k) for k in ("requesting_agent", "tool") if k in args}
             return client.request(
                 "POST" if name == "reveal_secret" else "GET",
                 path + ("/reveal" if name == "reveal_secret" else ""),
-                payload={} if name == "reveal_secret" else None,
+                payload=payload if name == "reveal_secret" else None,
                 params=args,
             )
         raise GlyphHoldError("Unknown Glyph Hold tool: " + name)
