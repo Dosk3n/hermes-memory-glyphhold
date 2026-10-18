@@ -45,8 +45,25 @@ except ImportError:
         return Path(home) if home else None
 
 
-__version__ = "2.1.0"
+__version__ = "2.1.1"
 log = logging.getLogger(__name__)
+
+
+SAFE_VAULT_ERRORS = {
+    "vault_item_not_found": "Vault item not found; search again and use a current ID",
+    "vault_unavailable": "External vault unavailable; test the saved connection.",
+    "secret_values_differ": "Values differ; both secrets retained. Ask the user.",
+    "vault_status_failed": "Vault status failed. Test the saved connection or repeat this read.",
+    "vault_config_failed": "Vault config failed. Test the saved connection or repeat this read.",
+    "vault_login_failed": "Vault login failed. Test the saved connection or repeat this read.",
+    "vault_unlock_failed": "Vault unlock failed. Test the saved connection or repeat this read.",
+    "vault_sync_failed": "Vault sync failed. Test the saved connection or repeat this read.",
+    "vault_get_failed": "Vault get failed. Test the saved connection or repeat this read.",
+    "vault_list_failed": "Vault list failed. Test the saved connection or repeat this read.",
+    "vault_create_failed": "Vault create failed. Check the destination before retrying.",
+    "vault_edit_failed": "Vault edit failed. Check the destination before retrying.",
+    "vault_operation_failed": "Vault operation failed. Test the saved connection.",
+}
 
 
 class GlyphHoldError(RuntimeError):
@@ -122,6 +139,14 @@ class GlyphHoldClient:
                 data = response.read()
                 return json.loads(data) if data else None
         except HTTPError as exc:
+            hint = (
+                SAFE_VAULT_ERRORS.get(exc.headers.get("X-GlyphHold-Error", ""))
+                if exc.headers
+                else None
+            )
+            if hint:
+                raise GlyphHoldError(f"Glyph Hold HTTP {exc.code}: {hint}") from exc
+
             # Error responses are operational status, never reflected request bodies.
             raise GlyphHoldError(
                 f"Glyph Hold HTTP {exc.code}; inspect permissions, versions and server status"
@@ -449,7 +474,8 @@ class GlyphHoldMemoryProvider(MemoryProvider):
                 "search_secrets",
                 "Search global secret metadata in the active vault and built-in storage. "
                 "provider_name=builtin allows local-only access during vault outages; "
-                "values excluded.",
+                "Matches names, folders, saved website addresses and hostnames; values excluded. "
+                "Use provider_name=builtin as the migration checklist.",
                 {"query": text, "space_id": text, "provider_name": text},
             ),
             schema(
@@ -513,11 +539,16 @@ class GlyphHoldMemoryProvider(MemoryProvider):
                 "migrate_secret",
                 "Transfer a built-in secret directly without exposing its value. Search first; "
                 "target_id+field verifies identical existing values, or omit target_id to create "
-                "only if name unused. Conflicts retain both values.",
+                "only if name unused. Conflicts retain both values. "
+                "Use dry_run=true to preview without changes.",
                 {
                     "id_or_name": text,
                     "expected_version": {"type": "integer"},
                     "target_id": text,
+                    "dry_run": {
+                        "type": "boolean",
+                        "description": "Preview without creating or migrating secrets.",
+                    },
                     "field": text,
                     "folder_id": text,
                 },

@@ -310,3 +310,34 @@ def test_global_secret_schema_and_folder_field_transfer_tools():
     assert p.client.calls[1][2] == {"field": "sshKey.privateKey"}
     assert p.client.calls[1][3] == {}
     assert p.client.calls[2][1] == "/api/v2/secrets/sec_old/migrate"
+
+
+def test_migration_preview_and_safe_provider_error_hint(monkeypatch):
+    import io
+    from urllib.error import HTTPError
+
+    plugin = load_plugin()
+    p = plugin.GlyphHoldMemoryProvider()
+    p.client = FakeClient()
+    p.handle_tool_call(
+        "migrate_secret", {"id_or_name": "sec_test", "expected_version": 1, "dry_run": True}
+    )
+    assert p.client.calls[-1][2]["dry_run"] is True
+
+    def fail(*args, **kwargs):
+        raise HTTPError(
+            "http://gh",
+            503,
+            "Unavailable",
+            {"X-GlyphHold-Error": "vault_get_failed"},
+            io.BytesIO(b'{"detail":"private-secret-value"}'),
+        )
+
+    monkeypatch.setattr(plugin, "urlopen", fail)
+    client = plugin.GlyphHoldClient("http://gh", "test")
+    try:
+        client.request("POST", "/api/v2/secrets/test/migrate", {})
+    except plugin.GlyphHoldError as exc:
+        assert "Vault get failed" in str(exc) and "private-secret-value" not in str(exc)
+    else:
+        raise AssertionError("Expected a provider failure")
