@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sys
 from pathlib import Path
-
 
 PLUGIN_PATH = Path(__file__).resolve().parents[1] / "__init__.py"
 
@@ -11,193 +11,257 @@ PLUGIN_PATH = Path(__file__).resolve().parents[1] / "__init__.py"
 def load_plugin():
     spec = importlib.util.spec_from_file_location("glyphhold_plugin", PLUGIN_PATH)
     module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 
 
 class FakeClient:
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, tuple, dict]] = []
+    def __init__(self):
+        self.calls = []
+        self.fail = False
 
-    def get_memory(self, memory_id: str):
-        self.calls.append(("get_memory", (memory_id,), {}))
-        return {"id": memory_id, "title": "Current title"}
+    def request(self, method, path, payload=None, params=None):
+        self.calls.append((method, path, payload, params))
+        return {"ok": True}
 
-    def delete_memory(self, memory_id: str):
-        self.calls.append(("delete_memory", (memory_id,), {}))
-        return None
-
-    def get_secret_metadata(self, id_or_name: str):
-        self.calls.append(("get_secret_metadata", (id_or_name,), {}))
-        return {"id": "sec_1", "name": "CUSTOM_API_KEY"}
-
-    def delete_secret(self, id_or_name: str):
-        self.calls.append(("delete_secret", (id_or_name,), {}))
-        return None
-
-    def reveal_secret(self, **kwargs):
-        self.calls.append(("reveal_secret", (), kwargs))
-        return {"name": kwargs["id_or_name"], "value": "secret-value", "expires_in_seconds": 60}
-
-    def reveal_secret_env(self, **kwargs):
-        self.calls.append(("reveal_secret_env", (), kwargs))
-        return {"format": "env", "values": {"CUSTOM_API_KEY": "secret-value"}}
-
-    def prefetch_memories(self, **kwargs):
-        self.calls.append(("prefetch_memories", (), kwargs))
+    def recall(self, **payload):
+        self.calls.append(("recall", payload))
+        if self.fail:
+            raise RuntimeError("backend failed")
         return {
-            "should_inject": True,
-            "memories": [
+            "context": {"active_space_id": "space_work"},
+            "results": [
                 {
                     "id": "mem_1",
-                    "category": "people",
-                    "title": "Jess context",
-                    "summary": "Important relationship context.",
+                    "version": 4,
+                    "space_id": "space_work",
+                    "title": "Jess",
+                    "summary": "Known fact",
+                    "record_type": "profile",
+                    "source_refs": [{"id": "source", "version": 2}],
+                    "stale": False,
                 }
             ],
         }
 
 
-def test_provider_availability_uses_env(monkeypatch):
+def test_available_has_no_network(monkeypatch):
     plugin = load_plugin()
-    monkeypatch.delenv("GLYPHHOLD_URL", raising=False)
+    monkeypatch.setattr(
+        plugin,
+        "get_secret",
+        lambda key: {"GLYPHHOLD_URL": "http://gh", "GLYPHHOLD_API_KEY": "test"}.get(key),
+    )
+    assert plugin.GlyphHoldMemoryProvider().is_available()
+
+
+def test_profile_config_never_mutates_environment(tmp_path, monkeypatch):
+    plugin = load_plugin()
     monkeypatch.delenv("GLYPHHOLD_API_KEY", raising=False)
-    assert plugin.GlyphHoldMemoryProvider().is_available() is False
-
-    monkeypatch.setenv("GLYPHHOLD_URL", "https://glyphhold.example.com")
-    monkeypatch.setenv("GLYPHHOLD_API_KEY", "gh_live_example")
-    assert plugin.GlyphHoldMemoryProvider().is_available() is True
-
-
-def test_tool_surface_matches_mcp_tools():
-    plugin = load_plugin()
-    provider = plugin.GlyphHoldMemoryProvider()
-    tool_names = {schema["function"]["name"] for schema in provider.get_tool_schemas()}
-    assert tool_names == {
-        "glyphhold_health",
-        "list_categories",
-        "list_memories",
-        "get_memory",
-        "search_memories",
-        "prefetch_memories",
-        "find_similar_memories",
-        "prepare_memory_write",
-        "create_memory",
-        "update_memory",
-        "update_memory_confidence",
-        "archive_memory",
-        "supersede_memory",
-        "list_memory_revisions",
-        "restore_memory_revision",
-        "delete_memory",
-        "search_secrets",
-        "get_secret_metadata",
-        "create_secret",
-        "update_secret",
-        "delete_secret",
-        "reveal_secret",
-        "reveal_secret_env",
-    }
-
-
-def test_config_schema_matches_hermes_expected_list_shape():
-    plugin = load_plugin()
-    provider = plugin.GlyphHoldMemoryProvider()
-
-    schema = provider.get_config_schema()
-
-    assert isinstance(schema, list)
-    fields = {field["key"]: field for field in schema}
-    assert fields["GLYPHHOLD_URL"]["env_var"] == "GLYPHHOLD_URL"
-    assert fields["GLYPHHOLD_URL"]["default"] == "http://127.0.0.1:5995"
-    assert fields["GLYPHHOLD_API_KEY"]["secret"] is True
-    assert fields["GLYPHHOLD_VERIFY_SSL"]["choices"] == ["true", "false"]
-    assert all("fields" not in field for field in schema)
-
-
-def test_delete_memory_requires_matching_title():
-    plugin = load_plugin()
-    provider = plugin.GlyphHoldMemoryProvider()
-    fake = FakeClient()
-    provider.client = fake
-
-    result = json.loads(
-        provider.handle_tool_call(
-            "delete_memory", {"memory_id": "mem_1", "confirm_title": "Wrong title"}
-        )
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    (first / "glyphhold.env").write_text(
+        "GLYPHHOLD_URL=http://first\nGLYPHHOLD_API_KEY=first-key\nGLYPHHOLD_SPACE_ID=space_work\n"
     )
-    assert "error" in result
-    assert fake.calls == [("get_memory", ("mem_1",), {})]
-
-    result = json.loads(
-        provider.handle_tool_call(
-            "delete_memory", {"memory_id": "mem_1", "confirm_title": "Current title"}
-        )
+    (second / "glyphhold.env").write_text(
+        "GLYPHHOLD_URL=http://second\nGLYPHHOLD_API_KEY=second-key\nGLYPHHOLD_SPACE_ID=space_personal\n"
     )
-    assert result == {"deleted": True}
-    assert fake.calls[-1] == ("delete_memory", ("mem_1",), {})
+    a = plugin.GlyphHoldMemoryProvider()
+    b = plugin.GlyphHoldMemoryProvider()
+    a.initialize("same-session", hermes_home=str(first))
+    b.initialize("same-session", hermes_home=str(second))
+    assert a.client.api_key == "first-key" and b.client.api_key == "second-key"
+    assert a._session() != b._session()
+    assert plugin.os.getenv("GLYPHHOLD_API_KEY") is None
+    assert a.space_id == "space_work" and b.space_id == "space_personal"
 
 
-def test_delete_secret_requires_matching_name():
+def test_prefetch_retains_identity_lineage_and_session():
     plugin = load_plugin()
-    provider = plugin.GlyphHoldMemoryProvider()
-    fake = FakeClient()
-    provider.client = fake
+    p = plugin.GlyphHoldMemoryProvider()
+    p.client = FakeClient()
+    p.session_id = "chat"
+    p.profile = "work"
+    result = p.prefetch("Jess")
+    assert "mem_1" in result and '"version": 4' in result and "space_work" in result
+    assert "source_refs" in result
+    assert p.client.calls[0][1]["session_id"] == "work:chat"
+    count = len(p.client.calls)
+    p.queue_prefetch("Jess")
+    p.on_memory_write("add", "memory", "fact")
+    assert len(p.client.calls) == count
 
-    result = json.loads(
-        provider.handle_tool_call(
-            "delete_secret", {"id_or_name": "sec_1", "confirm_name": "OTHER_SECRET"}
-        )
+
+def test_prefetch_failure_distinguished_from_no_matches():
+    plugin = load_plugin()
+    p = plugin.GlyphHoldMemoryProvider()
+    p.client = FakeClient()
+    p.client.fail = True
+    assert "retrieval failed" in p.prefetch("Jess")
+    assert p.last_error
+
+
+def test_tools_require_cas_idempotency_and_allow_deliberate_discovery():
+    p = load_plugin().GlyphHoldMemoryProvider()
+    schemas = {s["function"]["name"]: s["function"]["parameters"] for s in p.get_tool_schemas()}
+    assert "expected_version" in schemas["update_memory"]["required"]
+    assert "idempotency_key" in schemas["create_memory"]["required"]
+    assert "broaden" in schemas["search_memories"]["properties"]
+    assert "reveal_secret_env" not in schemas
+    assert "delete_memory" not in schemas
+
+
+def test_dispatch_does_not_mutate_args_and_preserves_versions():
+    p = load_plugin().GlyphHoldMemoryProvider()
+    p.client = FakeClient()
+    args = {"memory_id": "mem /1", "body": "new", "expected_version": 3}
+    result = json.loads(p.handle_tool_call("update_memory", args))
+    assert result == {"ok": True} and args["memory_id"] == "mem /1"
+    assert p.client.calls[0][:3] == (
+        "PATCH",
+        "/api/v2/memories/mem%20%2F1",
+        {"body": "new", "expected_version": 3},
     )
-    assert "error" in result
-    assert fake.calls == [("get_secret_metadata", ("sec_1",), {})]
 
+
+def test_nonprimary_writes_blocked():
+    p = load_plugin().GlyphHoldMemoryProvider()
+    p.client = FakeClient()
+    p.write_enabled = False
     result = json.loads(
-        provider.handle_tool_call(
-            "delete_secret", {"id_or_name": "sec_1", "confirm_name": "CUSTOM_API_KEY"}
-        )
+        p.handle_tool_call("create_memory", {"title": "x", "body": "y", "idempotency_key": "a"})
     )
-    assert result == {"deleted": True}
-    assert fake.calls[-1] == ("delete_secret", ("sec_1",), {})
+    assert "disabled" in result["error"] and p.client.calls == []
 
 
-def test_prefetch_formats_memory_context():
+def test_session_context_uses_current_session():
+    p = load_plugin().GlyphHoldMemoryProvider()
+    p.client = FakeClient()
+    p.session_id = "chat"
+    p.profile = "personal"
+    p.handle_tool_call("set_memory_context", {"space_id": "space_work"})
+    assert p.client.calls[0][2] == {"session_id": "personal:chat", "space_id": "space_work"}
+
+
+def test_current_hermes_hooks_do_not_ingest_transcripts():
+    p = load_plugin().GlyphHoldMemoryProvider()
+    p.client = FakeClient()
+    p.sync_turn(
+        "private user message",
+        "assistant response",
+        session_id="chat",
+        messages=[{"role": "tool", "content": "private output"}],
+        turn_author={"id": "user-1", "name": "Dean", "is_bot": False},
+    )
+    assert not p.client.calls
+
+
+def test_session_switch_routes_reads_and_writes_to_new_conversation():
+    p = load_plugin().GlyphHoldMemoryProvider()
+    p.client = FakeClient()
+    p.profile = "personal"
+    p.session_id = "old"
+    p.prefetch("Jess")
+    p.on_session_switch("new", parent_session_id="old", reset=True, reason="branch")
+    assert p.recall_status() is None
+    p.handle_tool_call("create_memory", {"title": "fact", "body": "x", "idempotency_key": "op"})
+    assert p.client.calls[-1][2]["session_id"] == "personal:new"
+    p.handle_tool_call("get_memory_context", {})
+    assert p.client.calls[-1][3]["session_id"] == "personal:new"
+
+
+def test_recall_indicator_never_reuses_prior_success():
+    p = load_plugin().GlyphHoldMemoryProvider()
+    p.client = FakeClient()
+    p.prefetch("Jess")
+    assert p.recall_status().count == 1
+    p.prefetch("")
+    assert p.recall_status() is None
+    p.prefetch("Jess")
+    p.client.fail = True
+    p.prefetch("Jess")
+    assert p.recall_status() is None
+    p.shutdown()
+    assert p.client is None
+
+
+def test_availability_uses_active_profile_sidecar(tmp_path, monkeypatch):
     plugin = load_plugin()
-    provider = plugin.GlyphHoldMemoryProvider()
-    provider.client = FakeClient()
+    monkeypatch.setattr(plugin, "get_secret", lambda name: None)
+    monkeypatch.setattr(plugin, "get_hermes_home", lambda: tmp_path)
+    (tmp_path / "glyphhold.env").write_text("GLYPHHOLD_URL=http://local\nGLYPHHOLD_API_KEY=test\n")
+    p = plugin.GlyphHoldMemoryProvider()
+    assert p.is_available()
+    p.initialize("chat", hermes_home=tmp_path)
+    assert p.client.base_url == "http://local"
 
-    context = provider.prefetch("Tell me about Jess")
 
-    assert "# Glyph Hold memory context" in context
-    assert "[people] Jess context: Important relationship context." in context
-
-
-def test_secret_reveal_tools_dispatch_to_client():
+def test_same_identity_in_different_homes_does_not_share_context(tmp_path):
     plugin = load_plugin()
-    provider = plugin.GlyphHoldMemoryProvider()
-    fake = FakeClient()
-    provider.client = fake
-
-    reveal = json.loads(
-        provider.handle_tool_call(
-            "reveal_secret",
-            {
-                "id_or_name": "CUSTOM_API_KEY",
-                "requesting_agent": "hermes",
-                "purpose": "Needed for a user-approved API call",
+    providers = []
+    for name in ("first", "second"):
+        p = plugin.GlyphHoldMemoryProvider()
+        p.initialize(
+            "chat",
+            hermes_home=tmp_path / name,
+            agent_identity="default",
+            config={
+                "GLYPHHOLD_URL": "http://gh",
+                "GLYPHHOLD_API_KEY": "test",
             },
         )
-    )
-    assert reveal["value"] == "secret-value"
-    assert fake.calls[-1][0] == "reveal_secret"
-    assert fake.calls[-1][2]["purpose"] == "Needed for a user-approved API call"
+        providers.append(p)
+    assert providers[0]._session() != providers[1]._session()
 
-    env = json.loads(
-        provider.handle_tool_call(
-            "reveal_secret_env",
-            {"scope": "test", "requesting_agent": "hermes", "purpose": "Run a local command"},
-        )
-    )
-    assert env["values"] == {"CUSTOM_API_KEY": "secret-value"}
-    assert fake.calls[-1][0] == "reveal_secret_env"
+
+def test_registration_returns_new_instance_for_each_profile():
+    plugin = load_plugin()
+
+    class Context:
+        def __init__(self):
+            self.providers = []
+
+        def register_memory_provider(self, provider):
+            self.providers.append(provider)
+
+    ctx = Context()
+    plugin.register(ctx)
+    plugin.register(ctx)
+    assert ctx.providers[0] is not ctx.providers[1]
+
+
+def test_official_hermes_base_contract(monkeypatch):
+    """Opt-in validation against an unmodified official Hermes source checkout/file."""
+    import os
+    import sys
+    import types
+
+    import pytest
+
+    source = os.getenv("HERMES_PROVIDER_SOURCE")
+    if not source:
+        pytest.skip("Set HERMES_PROVIDER_SOURCE to official agent/memory_provider.py")
+    spec = importlib.util.spec_from_file_location("agent.memory_provider", source)
+    base = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, "agent", types.ModuleType("agent"))
+    monkeypatch.setitem(sys.modules, "agent.memory_provider", base)
+    spec.loader.exec_module(base)
+    plugin = load_plugin()
+    p = plugin.GlyphHoldMemoryProvider()
+    assert isinstance(p, base.MemoryProvider)
+    p.initialize("chat", config={"GLYPHHOLD_URL": "http://local", "GLYPHHOLD_API_KEY": "test"})
+    p.client = FakeClient()
+    p.prefetch("Jess", session_id="chat")
+    assert isinstance(p.recall_status(), base.RecallStatus)
+    p.sync_turn("user", "assistant", session_id="chat", messages=[], turn_author={"id": "dean"})
+    p.on_session_switch("next", parent_session_id="chat", reset=True, rewound=False)
+    p.on_turn_start(1, "hello", author_id="dean")
+    p.on_session_end([])
+    p.on_pre_compress([])
+    p.on_delegation("task", "result", child_session_id="child")
+    assert p.backup_paths() == []
+    assert p.identity_signature() == {}
+    p.shutdown()
