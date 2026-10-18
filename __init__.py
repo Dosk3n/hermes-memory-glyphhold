@@ -45,7 +45,7 @@ except ImportError:
         return Path(home) if home else None
 
 
-__version__ = "2.0.1"
+__version__ = "2.1.0"
 log = logging.getLogger(__name__)
 
 
@@ -447,8 +447,10 @@ class GlyphHoldMemoryProvider(MemoryProvider):
             ),
             schema(
                 "search_secrets",
-                "Search secret metadata; values are excluded.",
-                {"query": text, "space_id": text},
+                "Search global secret metadata in the active vault and built-in storage. "
+                "provider_name=builtin allows local-only access during vault outages; "
+                "values excluded.",
+                {"query": text, "space_id": text, "provider_name": text},
             ),
             schema(
                 "get_secret_metadata",
@@ -458,21 +460,68 @@ class GlyphHoldMemoryProvider(MemoryProvider):
             ),
             schema(
                 "create_secret",
-                "Store a reusable operational secret in an explicit space.",
+                "Create a global secret in the active provider after searching for duplicates. "
+                "Optional folder_id; empty string means unfiled, omission uses default.",
                 {
                     "name": text,
                     "value": text,
                     "space_id": text,
                     "description": text,
                     "value_type": text,
+                    "folder_id": text,
+                    "username": text,
+                    "uri": text,
                 },
-                ["name", "value", "space_id"],
+                ["name", "value"],
             ),
             schema(
                 "reveal_secret",
                 "Reveal a secret only for an explicit user request or authorised task.",
-                {"id_or_name": text, "space_id": text, "requesting_agent": text, "tool": text},
+                {
+                    "id_or_name": text,
+                    "space_id": text,
+                    "requesting_agent": text,
+                    "tool": text,
+                    "field": text,
+                },
                 ["id_or_name"],
+            ),
+            schema(
+                "list_secret_folders",
+                "List optional vault folders; built-in storage returns supported=false.",
+                {},
+            ),
+            schema(
+                "create_secret_folder",
+                "Create a vault folder after checking existing folders.",
+                {"name": text},
+                ["name"],
+            ),
+            schema(
+                "update_secret",
+                "Update an explicitly selected field using its current metadata version. Never "
+                "overwrite conflicts without authorisation.",
+                {
+                    "id_or_name": text,
+                    "expected_version": {"type": ["integer", "string"]},
+                    "value": text,
+                    "field": text,
+                },
+                ["id_or_name", "expected_version", "value"],
+            ),
+            schema(
+                "migrate_secret",
+                "Transfer a built-in secret directly without exposing its value. Search first; "
+                "target_id+field verifies identical existing values, or omit target_id to create "
+                "only if name unused. Conflicts retain both values.",
+                {
+                    "id_or_name": text,
+                    "expected_version": {"type": "integer"},
+                    "target_id": text,
+                    "field": text,
+                    "folder_id": text,
+                },
+                ["id_or_name", "expected_version"],
             ),
         ]
 
@@ -496,6 +545,7 @@ class GlyphHoldMemoryProvider(MemoryProvider):
             "get_memory_context",
             "get_placement_guidance",
             "search_secrets",
+            "list_secret_folders",
             "get_secret_metadata",
             "reveal_secret",
         }
@@ -554,12 +604,25 @@ class GlyphHoldMemoryProvider(MemoryProvider):
             return client.request("GET", "/api/v2/guidance", params=args)
         if name == "search_secrets":
             return client.request("GET", "/api/v2/secrets", params=args)
+        if name == "list_secret_folders":
+            return client.request("GET", "/api/v2/secrets/folders")
+        if name == "create_secret_folder":
+            return client.request("POST", "/api/v2/secrets/folders", args)
+        if name in {"update_secret", "migrate_secret"}:
+            ident = args.pop("id_or_name")
+            return client.request(
+                "PATCH" if name == "update_secret" else "POST",
+                "/api/v2/secrets/"
+                + encoded(ident)
+                + ("/migrate" if name == "migrate_secret" else ""),
+                args,
+            )
         if name == "create_secret":
             return client.request("POST", "/api/v2/secrets", args)
         if name in {"get_secret_metadata", "reveal_secret"}:
             ident = args.pop("id_or_name")
             path = "/api/v2/secrets/" + encoded(ident)
-            payload = {k: args.pop(k) for k in ("requesting_agent", "tool") if k in args}
+            payload = {k: args.pop(k) for k in ("requesting_agent", "tool", "field") if k in args}
             return client.request(
                 "POST" if name == "reveal_secret" else "GET",
                 path + ("/reveal" if name == "reveal_secret" else ""),

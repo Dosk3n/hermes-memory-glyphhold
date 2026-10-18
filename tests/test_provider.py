@@ -284,3 +284,29 @@ def test_reveal_preserves_legacy_caller_labels_in_body_not_url():
         {"space_id": "space_import_review"},
     )
     assert args["id_or_name"] == "SSH_PASSWORD"
+
+
+def test_global_secret_schema_and_folder_field_transfer_tools():
+    plugin = load_plugin()
+    p = plugin.GlyphHoldMemoryProvider()
+    p.client = FakeClient()
+    schemas = {s["function"]["name"]: s["function"]["parameters"] for s in p.get_tool_schemas()}
+    assert schemas["create_secret"]["required"] == ["name", "value"]
+    assert "folder_id" in schemas["create_secret"]["properties"]
+    p.handle_tool_call("list_secret_folders", {})
+    p.handle_tool_call(
+        "reveal_secret", {"id_or_name": "vw:account:item", "field": "sshKey.privateKey"}
+    )
+    p.handle_tool_call(
+        "migrate_secret",
+        {
+            "id_or_name": "sec_old",
+            "expected_version": 1,
+            "target_id": "vw:account:item",
+            "field": "login.password",
+        },
+    )
+    assert p.client.calls[0][1] == "/api/v2/secrets/folders"
+    assert p.client.calls[1][2] == {"field": "sshKey.privateKey"}
+    assert p.client.calls[1][3] == {}
+    assert p.client.calls[2][1] == "/api/v2/secrets/sec_old/migrate"
