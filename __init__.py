@@ -45,7 +45,7 @@ except ImportError:
         return Path(home) if home else None
 
 
-__version__ = "2.1.2"
+__version__ = "2.1.3"
 log = logging.getLogger(__name__)
 
 
@@ -645,7 +645,11 @@ class GlyphHoldMemoryProvider(MemoryProvider):
                 "PATCH" if name == "update_secret" else "POST",
                 "/api/v2/secrets/"
                 + encoded(ident)
-                + ("/migrate" if name == "migrate_secret" else ""),
+                + (
+                    ("/migrate/preview" if args.get("dry_run") else "/migrate")
+                    if name == "migrate_secret"
+                    else ""
+                ),
                 args,
             )
         if name == "create_secret":

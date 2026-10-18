@@ -323,6 +323,7 @@ def test_migration_preview_and_safe_provider_error_hint(monkeypatch):
         "migrate_secret", {"id_or_name": "sec_test", "expected_version": 1, "dry_run": True}
     )
     assert p.client.calls[-1][2]["dry_run"] is True
+    assert p.client.calls[-1][1].endswith("/migrate/preview")
 
     def fail(*args, **kwargs):
         raise HTTPError(

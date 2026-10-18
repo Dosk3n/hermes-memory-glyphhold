@@ -1,5 +1,5 @@
 name: glyphhold
-version: 2.1.2
+version: 2.1.3
 description: Glyph Hold memory provider for Hermes Agent.
 author: Dosk3n
 entry_point: __init__.py
