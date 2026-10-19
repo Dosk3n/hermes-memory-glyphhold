@@ -1,6 +1,6 @@
 # Glyph Hold 2 memory provider for Hermes
 
-Version 2.1.3 targets Glyph Hold 2's `/api/v2` contract. Version 0.1.0 targets
+Version 2.2.0 targets Glyph Hold 2's `/api/v2` contract. Version 0.1.0 targets
 Glyph Hold 1 and must be upgraded alongside the service. No API credits or model
 calls are required by this provider; optional Advanced Memory runs on the server.
 
@@ -65,7 +65,7 @@ non-secret fields; this provider uses that supported env-only configuration rout
 Use a directory installation at `$HERMES_HOME/plugins/glyphhold`; do not inject
 packages into a Hermes-managed Python environment with pip.
 
-Version 2.1.3 implements the current `turn_author` hook argument, session-switch
+Version 2.2.0 implements the current `turn_author` hook argument, session-switch
 handling and the native recall indicator. The indicator resets on empty/failed
 recall and session changes. New/branched sessions use the connection default;
 resuming an existing session restores that session's server-side context.
@@ -101,7 +101,7 @@ by 2.1.3; migrate its required settings securely, and do not copy unrelated
 credentials. Restart Hermes and verify recall and an explicit test write before
 accepting the migration. Production deployment and this live check are pending.
 
-Version 2.1.3 preserves legacy secret caller-label constraints through optional
+Version 2.2.0 preserves legacy secret caller-label constraints through optional
 `requesting_agent` and `tool` fields on `reveal_secret`. These labels supplement
 authenticated space grants; they do not authenticate a caller. Unmatched legacy
 restrictions are denied by GH2 rather than silently discarded during migration.
@@ -142,3 +142,11 @@ Use `provider_name=builtin` for the remaining migration checklist.
 without changing either provider. Known provider failure codes produce safe,
 actionable tool errors; arbitrary error bodies are not echoed. An uncertain
 write requires destination inspection before retrying.
+
+## Selective recall (2.2)
+
+Automatic recall supplies a small relevant starting context. An empty result does
+not mean that no matching memories exist; even a nonempty result can concern the
+wrong entity or space. Search explicitly for missing personal facts, try shorter
+terms or synonyms, and broaden deliberately for another permitted space. Read the
+full record by ID when an excerpt omits evidence. Tool parameters are unchanged.
